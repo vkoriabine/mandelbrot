@@ -7,15 +7,15 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 
 public class SnapshotProvider {
-	
+
 	private static final double START_X0 = -2.5;
 	private static final double START_Y0 = -2;
 	private static final double START_X1 = 1.5;
 	private static final double START_Y1 = 2;
 
 	private final Settings settings;
-	
-	private final  Calculator calculator;
+
+	private final Calculator calculator;
 
 	private Snapshot currentSnapshot;
 
@@ -27,12 +27,15 @@ public class SnapshotProvider {
 		zoomIn(-1, -1);
 	}
 
+	public void repaint() {
+		if (currentSnapshot != null) {
+			currentSnapshot = new Snapshot(newImage(), currentSnapshot);
+			calculator.submit(currentSnapshot);
+		}
+	}
+
 	public void zoomIn(int x, int y) {
-		BufferedImage image = new BufferedImage(settings.width * settings.scaleFactor,
-				settings.height * settings.scaleFactor, BufferedImage.TYPE_INT_RGB);
-		Graphics2D graphics = image.createGraphics();
-		graphics.setPaint(settings.uncalculatedColor);
-		graphics.fillRect(0, 0, image.getWidth(), image.getHeight());
+		BufferedImage image = newImage();
 		BigDecimal x0;
 		BigDecimal y0;
 		BigDecimal x1;
@@ -57,7 +60,7 @@ public class SnapshotProvider {
 			x1 = BigDecimal.valueOf(START_X1);
 			y1 = BigDecimal.valueOf(START_Y1);
 		}
-
+		
 		currentSnapshot = new Snapshot(image, x0, y0, x1, y1);
 		calculator.submit(currentSnapshot);
 	}
@@ -70,5 +73,14 @@ public class SnapshotProvider {
 
 	public Snapshot getSnapshot() {
 		return currentSnapshot;
+	}
+
+	private BufferedImage newImage() {
+		BufferedImage image = new BufferedImage(settings.width * settings.scaleFactor,
+				settings.height * settings.scaleFactor, BufferedImage.TYPE_INT_RGB);
+		Graphics2D graphics = image.createGraphics();
+		graphics.setPaint(settings.uncalculatedColor);
+		graphics.fillRect(0, 0, image.getWidth(), image.getHeight());
+		return image;
 	}
 }

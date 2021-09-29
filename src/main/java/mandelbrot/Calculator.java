@@ -6,33 +6,21 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import java.util.stream.IntStream;
 
 public class Calculator {
-	private static final BigDecimal INFINITY_THRESH = BigDecimal.valueOf(1 << 16);
+	private static final double INV_LOG_2 = 1.0 / Math.log(2);
 	private static final int MAX_THREADS = Runtime.getRuntime().availableProcessors();
 	private static final int CALC_THREADS = MAX_THREADS - 1;
 	private static final ExecutorService executor = Executors.newFixedThreadPool(MAX_THREADS);
-	private static final int MAX_ITER = 10000;
-	private static final int COLOR_THICKNESS = 12;
-	private static final Color[] COLORS = IntStream.range(0, MAX_ITER).mapToObj(x -> {
-		Color[] colors = new Color[] { Util.blend(Color.BLUE, Color.BLACK, 0.75), Color.ORANGE, Color.RED };
-		int n = x % (COLOR_THICKNESS * colors.length);
-		if (n % COLOR_THICKNESS == 0) {
-			return colors[n / COLOR_THICKNESS];
-		} else {
-			Color a = colors[n / COLOR_THICKNESS];
-			Color b = colors[((n / COLOR_THICKNESS) + 1) % colors.length];
-			return Util.blend(a, b, (n % COLOR_THICKNESS) / (double) COLOR_THICKNESS);
-		}
-	}).toArray(Color[]::new);
-	
+
 	private final Settings settings;
 
 	public Calculator(Settings settings) {
@@ -48,7 +36,6 @@ public class Calculator {
 				.divide(BigDecimal.valueOf(settings.getScaledWidth()), settings.mathContext);
 		BigDecimal heightInterval = snapshot.y1.subtract(snapshot.y0, settings.mathContext)
 				.divide(BigDecimal.valueOf(settings.getScaledHeight()), settings.mathContext);
-
 		List<BigDecimal> xPoints = new ArrayList<>();
 		BigDecimal x = snapshot.x0;
 		for (int i = 0; i < settings.getScaledWidth(); i++) {
@@ -73,12 +60,15 @@ public class Calculator {
 			int minY = threadBounds[t];
 			int maxY = threadBounds[t + 1];
 			futures.add(executor.submit(() -> {
+				long t1 = System.currentTimeMillis();
 				int[] tracePosition = { 0, minY };
 				do {
 					tracePosition = calculateArea(snapshot, xPoints, yPoints, minY, maxY, tracePosition);
 					traceEdge(snapshot, xPoints, yPoints, minY, maxY, tracePosition);
 				} while (tracePosition != null);
 				snapshot.finishCalculation();
+				long t2 = System.currentTimeMillis();
+				// System.out.println((t2-t1) / 1000.0);
 			}));
 		}
 		for (Future<?> future : futures) {
@@ -195,7 +185,7 @@ public class Calculator {
 			}
 		}
 	}
-	
+
 	boolean inBounds(int minX, int maxX, int minY, int maxY, int x, int y, int[] direction) {
 		x += direction[0];
 		y += direction[1];
@@ -212,8 +202,17 @@ public class Calculator {
 	boolean isInSet(Snapshot snapshot, int x, int y) {
 		return snapshot.getCalculated()[x][y] == 2;
 	}
-	
+
 	boolean evalPoint(Snapshot snapshot, int xIndex, int yIndex, List<BigDecimal> xPoints, List<BigDecimal> yPoints) {
+		if (settings.doublePrecision) {
+			return evalPointDouble(snapshot, xIndex, yIndex, xPoints, yPoints);
+		} else {
+			return evalPointArbitrary(snapshot, xIndex, yIndex, xPoints, yPoints);
+		}
+	}
+
+	boolean evalPointArbitrary(Snapshot snapshot, int xIndex, int yIndex, List<BigDecimal> xPoints,
+			List<BigDecimal> yPoints) {
 		if (isCalculated(snapshot, xIndex, yIndex)) {
 			return isInSet(snapshot, xIndex, yIndex);
 		}
@@ -224,39 +223,30 @@ public class Calculator {
 		BigDecimal y = BigDecimal.ZERO;
 		BigDecimal x2 = BigDecimal.ZERO;
 		BigDecimal y2 = BigDecimal.ZERO;
-		BigDecimal xOld = null;
-		BigDecimal yOld = null;
-		int period = 0;
+		BigDecimal x2PlusY2 = BigDecimal.ZERO;
 		int iter = 0;
-		while (x2.add(y2, settings.mathContext).compareTo(INFINITY_THRESH) < 0 && iter < MAX_ITER) {
+		Set<BigDecimal> xSet = new HashSet<>();
+		Set<BigDecimal> ySet = new HashSet<>();
+		while (x2PlusY2.compareTo(settings.infThreshArbitrary) < 0 && iter < settings.maxIter) {
 			y = x.add(x, settings.mathContext).multiply(y, settings.mathContext).add(y0, settings.mathContext);
 			x = x2.subtract(y2, settings.mathContext).add(x0, settings.mathContext);
 			x2 = x.multiply(x, settings.mathContext);
 			y2 = y.multiply(y, settings.mathContext);
+			x2PlusY2 = x2.add(y2, settings.mathContext);
 			iter++;
 
-			if (xOld == null) {
-				xOld = x;
-				yOld = y;
-			} else if (x.equals(xOld) && y.equals(yOld)) {
-				iter = MAX_ITER;
+			if (!xSet.add(x) && !ySet.add(y)) {
+				iter = settings.maxIter;
 				break;
-			}
-
-			period++;
-			if (period > 20) {
-				period = 0;
-				xOld = x;
-				yOld = y;
 			}
 		}
 
-		if (iter < MAX_ITER) {
-			double iterAdjusted = iter + 1 - Math.log((Math.log(x2.doubleValue() + y2.doubleValue()) / 2) / Math.log(2)) / Math.log(2);
+		if (iter < settings.maxIter) {
+			double iterAdjusted = iter + 1 - Math.log((Math.log(x2PlusY2.doubleValue()) * 0.5) * INV_LOG_2) * INV_LOG_2;
 			double frac = iterAdjusted % 1;
 
-			Color colorA = COLORS[(int) Math.floor(iterAdjusted) - 1];
-			Color colorB = COLORS[(int) Math.floor(iterAdjusted)];
+			Color colorA = settings.iterColors[(int) Math.floor(iterAdjusted) - 1];
+			Color colorB = settings.iterColors[(int) Math.floor(iterAdjusted)];
 			snapshot.image.setRGB(xIndex, yIndex, Util.blend(colorA, colorB, frac).getRGB());
 			snapshot.getCalculated()[xIndex][yIndex] = 1;
 			return false;
@@ -267,7 +257,8 @@ public class Calculator {
 		}
 	}
 
-	boolean evalPointFast(Snapshot snapshot, int xIndex, int yIndex, List<BigDecimal> xPoints, List<BigDecimal> yPoints) {
+	boolean evalPointDouble(Snapshot snapshot, int xIndex, int yIndex, List<BigDecimal> xPoints,
+			List<BigDecimal> yPoints) {
 		if (isCalculated(snapshot, xIndex, yIndex)) {
 			return isInSet(snapshot, xIndex, yIndex);
 		}
@@ -278,39 +269,28 @@ public class Calculator {
 		Double y = 0.0;
 		Double x2 = 0.0;
 		Double y2 = 0.0;
-		Double xOld = null;
-		Double yOld = null;
-		int period = 0;
 		int iter = 0;
-		while (x2 + y2 <= (1 << 16) && iter < MAX_ITER) {
+		Set<Double> xSet = new HashSet<>();
+		Set<Double> ySet = new HashSet<>();
+		while (x2 + y2 <= settings.infThreshDouble && iter < settings.maxIter) {
 			y = (x + x) * y + y0;
 			x = x2 - y2 + x0;
 			x2 = x * x;
 			y2 = y * y;
 			iter++;
 
-			if (xOld == null) {
-				xOld = x;
-				yOld = y;
-			} else if (x.equals(xOld) && y.equals(yOld)) {
-				iter = MAX_ITER;
+			if (!xSet.add(x) && !ySet.add(y)) {
+				iter = settings.maxIter;
 				break;
-			}
-
-			period++;
-			if (period > 20) {
-				period = 0;
-				xOld = x;
-				yOld = y;
 			}
 		}
 
-		if (iter < MAX_ITER) {
-			double iterAdjusted = iter + 1 - Math.log((Math.log(x2 + y2) / 2) / Math.log(2)) / Math.log(2);
+		if (iter < settings.maxIter) {
+			double iterAdjusted = iter + 1 - Math.log((Math.log(x2 + y2) * 0.5) * INV_LOG_2) * INV_LOG_2;
 			double frac = iterAdjusted % 1;
 
-			Color colorA = COLORS[(int) Math.floor(iterAdjusted) - 1];
-			Color colorB = COLORS[(int) Math.floor(iterAdjusted)];
+			Color colorA = settings.iterColors[(int) Math.floor(iterAdjusted) - 1];
+			Color colorB = settings.iterColors[(int) Math.floor(iterAdjusted)];
 			snapshot.image.setRGB(xIndex, yIndex, Util.blend(colorA, colorB, frac).getRGB());
 			snapshot.getCalculated()[xIndex][yIndex] = 1;
 			return false;

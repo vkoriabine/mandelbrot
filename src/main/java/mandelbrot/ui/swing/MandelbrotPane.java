@@ -28,7 +28,7 @@ public class MandelbrotPane extends JPanel {
 
 	private boolean showMouse;
 
-	public MandelbrotPane(Settings settings, SnapshotProvider snapshotProvider) {
+	MandelbrotPane(Settings settings, SnapshotProvider snapshotProvider) {
 		this.settings = settings;
 		this.snapshotProvider = snapshotProvider;
 		addMouseMotionListener(new MouseAdapter() {

@@ -4,6 +4,7 @@ import java.awt.BorderLayout;
 import java.awt.EventQueue;
 
 import javax.swing.JFrame;
+import javax.swing.JPanel;
 import javax.swing.UIManager;
 import javax.swing.UnsupportedLookAndFeelException;
 
@@ -23,19 +24,23 @@ public class MandelbrotWindow extends JFrame {
 				}
 
 				MandelbrotPane pane = new MandelbrotPane(settings, snapshotProvider);
-				MandelbrotWindow frame = new MandelbrotWindow(pane);
-				
+				SettingsPane settingsPane = new SettingsPane(settings, snapshotProvider);
+				MandelbrotWindow frame = new MandelbrotWindow(pane, settingsPane);
+
 				frame.setLocationRelativeTo(null);
 				frame.setVisible(true);
 			}
 		});
 	}
-	
-	MandelbrotWindow(MandelbrotPane pane) {
+
+	MandelbrotWindow(MandelbrotPane pane, SettingsPane settingsPane) {
 		super("Mandelbrot");
 		setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
 		setLayout(new BorderLayout());
 		add(pane, BorderLayout.CENTER);
+		JPanel wrapper = new JPanel();
+		wrapper.add(settingsPane);
+		add(wrapper, BorderLayout.EAST);
 		pack();
 	}
 }
